@@ -1,0 +1,91 @@
+service: MasterListing
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: eu-west-1
+  stage: ${opt:stage, 'dev'}
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:GetItem
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:UpdateItem
+      Resource: "*"
+
+  environment:
+    META_SYNC_LISTING_TABLE: meta-sync-listing-${self:provider.stage}
+    STAGE: ${opt:stage, 'dev'}
+    REGION: ${self:provider.region}
+
+package:
+  excludeDevDependencies: true
+
+functions:
+  buildMasterSchema:
+    handler: handlers/masterSchema.handler
+    events:
+      - http:
+          path: /buildMasterSchema
+          method: post
+          cors:
+            origin: "*"
+
+  insertTableData:
+    handler: handlers/insertTableData.handler
+    events:
+      - http:
+          path: /insertTableData
+          method: post
+          cors:
+            origin: "*"
+
+  getListingData:
+    handler: handlers/getListingData.handler
+    events:
+      - http:
+          path: /getListingData
+          method: get
+          cors:
+            origin: "*"
+
+resources:
+  Resources:
+    MasterListingTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: meta-sync-listing-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tableName
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tableName
+            KeyType: HASH
+          - AttributeName: createdAt
+            KeyType: RANGE
+
+custom:
+  esbuild:
+    bundle: true
+    minify: true
+    sourcemap: false
+    target: node20
+    platform: node
+    concurrency: 10
+    exclude:
+      - aws-sdk
+
+  serverless-offline:
+    watch:
+      ignore:
+        - node_modules/**
+
+plugins:
+  - serverless-esbuild
