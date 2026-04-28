@@ -13,13 +13,16 @@ async function updateLowercaseFields() {
         const scanParams = {
             TableName: "countries-listing-dev",
             ExclusiveStartKey,
-            ProjectionExpression: "country, city" // only fetch needed fields
+            ProjectionExpression: "airportName, iataCode, country, city" // only fetch needed fields
         };
 
         const scanResult = await ddbClient.send(new ScanCommand(scanParams));
         ExclusiveStartKey = scanResult.LastEvaluatedKey;
 
         for (const item of scanResult.Items) {
+            console.log("item iataCode********", item.iataCode.S);
+
+            const airportName = item.airportName.S;
             const country = item.country.S;
             const city = item.city.S;
 
@@ -30,10 +33,9 @@ async function updateLowercaseFields() {
                     country: { S: country },
                     city: { S: city }
                 },
-                UpdateExpression: "SET lowerCountry = :lc, lowerCity = :lci",
+                UpdateExpression: "SET lowerAirportName = :lan",
                 ExpressionAttributeValues: {
-                    ":lc": { S: country.toLowerCase() },
-                    ":lci": { S: city.toLowerCase() }
+                    ":lan": { S: airportName.toLowerCase() }
                 }
             };
 
@@ -45,7 +47,7 @@ async function updateLowercaseFields() {
                     console.log(`Updated ${totalUpdated} rows so far...`);
                 }
             } catch (err) {
-                console.error(`Failed to updatess: ${country} - ${city}`, err);
+                console.error(`Failed to updatess: ${airportName}`, err);
             }
         }
 

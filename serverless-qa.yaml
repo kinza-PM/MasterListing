@@ -5,7 +5,7 @@ provider:
   name: aws
   runtime: nodejs20.x
   region: eu-west-1
-  stage: ${opt:stage, 'dev'}
+  stage: ${opt:stage, 'qa'}
 
   iamRoleStatements:
     - Effect: Allow
@@ -15,14 +15,12 @@ provider:
         - dynamodb:Query
         - dynamodb:Scan
         - dynamodb:UpdateItem
-        - dynamodb:CreateTable
       Resource: "*"
 
   environment:
     META_SYNC_LISTING_TABLE: meta-sync-listing-${self:provider.stage}
-    STAGE: ${opt:stage, 'dev'}
+    STAGE: ${opt:stage, 'qa'}
     REGION: ${self:provider.region}
-    USER_SEARCH_PREFERENCES_TABLE : user-search-preferences-${self:provider.stage}
 
 package:
   excludeDevDependencies: true

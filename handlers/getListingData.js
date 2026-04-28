@@ -10,7 +10,7 @@ const ddbClient = new DynamoDBClient({ region: REGION });
 export const handler = async (event) => {
     try {
         // Parse query parameters
-        let { tableName, nextToken, limit, search } = event.queryStringParameters || {};
+        let { tableName, nextToken, limit, search, browserId, sortBy, sortOrder = "asc" } = event.queryStringParameters || {};
         let items = []
 
         if (!tableName) {
@@ -44,17 +44,31 @@ export const handler = async (event) => {
         //     };
         // }
 
-   
-        if (search && search.trim() !== "") {
-            let ExclusiveStartKey = undefined;
 
+        if (search && search.trim() !== "") {
+
+            if (search.length === 3) {
+                const queryParams = {
+                    TableName: targetTableName,
+                    IndexName: "GSI_IATA_CODE",
+                    KeyConditionExpression: "iataCode = :iataCode",
+                    ExpressionAttributeValues: {
+                        ":iataCode": { S: search.toUpperCase() },
+                    }
+                    // Limit: 100,
+                };
+                const dataResp = await ddbClient.send(new QueryCommand(queryParams));
+                
+                items.push(...(dataResp.Items || []).map(item => unmarshall(item)));
+            }
+
+            let ExclusiveStartKey = undefined;
             do {
                 const scanParams = {
                     TableName: targetTableName,
                     ExclusiveStartKey,
-                    Limit: 100, 
-                    FilterExpression:
-                        "begins_with(lowerCountry, :search) OR begins_with(lowerCity, :search)",
+                    Limit: 500,
+                    FilterExpression: "begins_with(lowerCountry, :search) OR begins_with(lowerCity, :search) OR begins_with(lowerAirportName, :search)",
                     ExpressionAttributeValues: {
                         ":search": { S: search.toLowerCase() },
                     },
@@ -65,11 +79,28 @@ export const handler = async (event) => {
                 ExclusiveStartKey = dataResp.LastEvaluatedKey;
             } while (ExclusiveStartKey);
 
+            if (browserId) {
+                const params = {
+                    TableName: process.env.USER_SEARCH_PREFERENCES_TABLE,
+                    KeyConditionExpression: "userKey = :userKey",
+                    ExpressionAttributeValues: {
+                        ":userKey": { S: browserId }, // ✅ FIXED
+                    },
+                    ScanIndexForward: false, // DESC order
+                    Limit: 3,
+                };
+
+                const result = await ddbClient.send(new QueryCommand(params));
+
+                items.push(...(result.Items || []).map(item => unmarshall(item)));
+            }
+
+
+
         } else {
             // Normal paginated scan
             const scanParams = {
                 TableName: targetTableName,
-                Limit: limit ? parseInt(limit, 10) : 40,
                 ExclusiveStartKey: nextToken
                     ? JSON.parse(Buffer.from(nextToken, "base64").toString("utf8"))
                     : undefined,
@@ -77,6 +108,33 @@ export const handler = async (event) => {
 
             const dataResp = await ddbClient.send(new ScanCommand(scanParams));
             items = (dataResp.Items || []).map(item => unmarshall(item));
+
+            // Alphabetical ordering if table is "countries-listing"
+            if (targetTableName === "countries-listing-dev") {
+                items.sort((a, b) => a.city.localeCompare(b.city));
+            }
+
+            if (sortBy) {
+                items.sort((a, b) => {
+                    const valA = a?.[sortBy];
+                    const valB = b?.[sortBy];
+
+                    // handle null/undefined
+                    if (valA == null && valB == null) return 0;
+                    if (valA == null) return 1;
+                    if (valB == null) return -1;
+
+                    // numeric sort (e.g. sequence)
+                    if (typeof valA === "number" && typeof valB === "number") {
+                        return sortOrder === "desc" ? valB - valA : valA - valB;
+                    }
+
+                    // string sort (e.g. city, name)
+                    return sortOrder === "desc"
+                        ? String(valB).localeCompare(String(valA))
+                        : String(valA).localeCompare(String(valB));
+                });
+            }
 
             // Return nextToken for client
             nextToken = dataResp.LastEvaluatedKey
